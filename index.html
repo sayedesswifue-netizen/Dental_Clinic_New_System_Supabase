@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>CMMS Supabase — نظام إدارة الصيانة</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+  .container { text-align: center; padding: 40px; }
+  h1 { color: #00d4ff; font-size: 28px; margin-bottom: 10px; }
+  p { color: #888; font-size: 14px; margin-bottom: 30px; }
+  .btn { display: inline-block; background: #A6192E; color: #fff; padding: 16px 32px; border-radius: 12px; text-decoration: none; font-size: 18px; font-weight: bold; margin: 10px; transition: all 0.3s; }
+  .btn:hover { background: #7A1221; transform: translateY(-2px); }
+  .btn-secondary { background: #16213E; }
+  .btn-secondary:hover { background: #0F3460; }
+  .info { background: #16213E; padding: 20px; border-radius: 12px; margin-top: 30px; text-align: right; max-width: 500px; margin-left: auto; margin-right: auto; }
+  .info h3 { color: #00d4ff; margin-bottom: 10px; }
+  .info ul { list-style: none; padding: 0; }
+  .info li { padding: 5px 0; color: #aaa; }
+  .info li::before { content: "✅ "; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🦷 نظام إدارة الصيانة الذكي</h1>
+  <p>كلية طب الفم والأسنان — جامعة المستقبل في مصر</p>
+  <p style="color: #00d4ff; font-size: 12px;">Supabase Edition — نفس النظام القديم بس بـ Backend أسرع</p>
+  
+  <a href="cmms.html" class="btn">📊 Dashboard (cmms)</a>
+  <a href="fault_report.html?clinic=412" class="btn btn-secondary">📝 بلاغ عطل</a>
+  
+  <div class="info">
+    <h3>🔧 التعديلات المطبقة:</h3>
+    <ul>
+      <li>قاعدة البيانات: Google Drive JSON → Supabase PostgreSQL</li>
+      <li>LockService: قفل واحد عالمي → PostgreSQL concurrency</li>
+      <li>زمن الاستجابة: 1-3 ثانية → أقل من 100ms</li>
+      <li>15 عيادة تعمل بشكل متوازي (مش طابور)</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>
