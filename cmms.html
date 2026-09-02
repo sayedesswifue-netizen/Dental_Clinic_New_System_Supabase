@@ -1022,8 +1022,7 @@ function resetDB(){
 function clearTestData(){
   const faultCount = DB.faults.length, woCount = DB.workOrders.length;
   if(!confirm(`This will permanently delete ALL ${faultCount} fault ticket(s) and ${woCount} work order(s).\n\nAssets, engineers, spare parts, and purchase orders will NOT be affected.\n\nThis cannot be undone. Continue?`)) return;
-  // Revert any spare-part quantities that were consumed by these test faults/work orders,
-  // so stock levels don't stay artificially low after the test tickets are wiped.
+  // Revert any spare-part quantities that were consumed by these test faults/work orders
   DB.faults.forEach(f=>{
     if(f.partNumber && f.qtyUsed){
       const p = DB.spareParts.find(x=>x.partNumber===f.partNumber);
@@ -1035,8 +1034,16 @@ function clearTestData(){
   DB.nextTicket = 1;
   DB.nextWO = 1;
   saveDB();
+  // Also delete from Supabase
+  if (isConfigured()) {
+    supabaseDelete('work_orders', 'id=not.is.null').catch(()=>{});
+    supabaseDelete('faults', 'id=not.is.null').then(()=>{
+      toast(`Cleared ${faultCount} ticket(s) and ${woCount} work order(s)`, 'info');
+    }).catch(()=> toast('Cleared locally but Supabase delete failed', 'error'));
+  } else {
+    toast(`Cleared ${faultCount} test ticket(s) and ${woCount} work order(s)`, 'info');
+  }
   navigate('dashboard');
-  toast(`Cleared ${faultCount} test ticket(s) and ${woCount} work order(s)`, 'info');
 }
 
 /* ============================================================
