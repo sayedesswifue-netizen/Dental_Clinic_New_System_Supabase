@@ -1001,19 +1001,19 @@ function saveDB(){
 }
 function resetDB(){
   if(!isConfigured()){
-    toast('Set the Apps Script URL in Setup first','error');
+    toast('Supabase is always configured','error');
     return;
   }
   if(!confirm('This will discard any unsaved/bad local changes and restore the most recent backup from the server.\n\nThis does NOT erase your data — it rolls back to the last known-good snapshot.\n\nContinue?')) return;
   toast('Looking up the latest backup…','info');
-  fetch(CONFIG.SUPABASE_URL + '/rest/v1/backups?select=*&order=created_at.desc', { headers: { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': '***' + CONFIG.SUPABASE_KEY } })
-    .then(r => r.json())
-    .then(j => {
-      if(j.status !== 'success' || !j.backups || !j.backups.length){
-        toast('No backups found on the server yet — nothing to restore. Use "Backup Now" first.','error');
+  supabaseQuery('backups', 'select=*&order=created_at.desc')
+    .then(result => {
+      const backups = result.data || [];
+      if(backups.length === 0){
+        toast('No backups found — use "Backup Now" first.','error');
         return;
       }
-      const latest = j.backups[0]; // already sorted newest-first by the server
+      const latest = backups[0];
       performRestore(latest.name);
     })
     .catch(()=> toast('Could not reach the server — check your connection','error'));
@@ -1040,13 +1040,11 @@ function clearTestData(){
 }
 
 /* ============================================================
-   SERVER SYNC — Google Apps Script backend (shared across devices)
+   SERVER SYNC — Supabase PostgreSQL backend
    ============================================================ */
 const CONFIG = {
-  // Paste the /exec URL from your Apps Script deployment here (or set it
-  // once from the Setup page — it will be remembered on this browser).
-  // Must be the SAME URL used in fault_report.html.
-  SUPABASE_URL: 'https://dntcwboceyihuxeuwdff.supabase.co', SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudGN3Ym9jZXlpaHV4ZXV3ZGZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxODI5ODgsImV4cCI6MjEwMzc1ODk4OH0.c9C_AZm3DeNV9PC9JdVjUqj70zzDc_p1DxOqrndniqM', APPS_SCRIPT_URL: 'https://dntcwboceyihuxeuwdff.supabase.co'
+  // Supabase is configured in CONFIG above.
+  SUPABASE_URL: 'https://dntcwboceyihuxeuwdff.supabase.co', SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudGN3Ym9jZXlpaHV4ZXV3ZGZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxODI5ODgsImV4cCI6MjEwMzc1ODk4OH0.c9C_AZm3DeNV9PC9JdVjUqj70zzDc_p1DxOqrndniqM'
 };
 function setGasUrl(url){
   toast('Supabase is configured in the code. No URL needed.', 'info');
@@ -1066,19 +1064,91 @@ function isConfigured(){
 
 // Push the full local DB up to the server (debounced so rapid edits
 // don't fire dozens of requests).
+// Supabase helper: generic REST call
+async function supabaseQuery(table, params='', options={}) {
+  const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY, ...options.headers };
+  const url = CONFIG.SUPABASE_URL + '/rest/v1/' + table + (params ? '?' + params : '');
+  const resp = await fetch(url, { method: options.method||'GET', headers, body: options.body ? JSON.stringify(options.body) : undefined });
+  if (!resp.ok) throw new Error('Supabase error: ' + resp.status);
+  if (options.method === 'DELETE' || resp.status === 204) return { data: [], count: 0 };
+  const data = await resp.json();
+  const range = resp.headers.get('content-range');
+  const count = range ? parseInt(range.split('/')[1]) : data.length;
+  return { data, count };
+}
+
+async function supabaseUpsert(table, rows, onConflict) {
+  if (!rows || rows.length === 0) return true;
+  const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' };
+  if (onConflict) headers['Prefer'] += ',on_conflict=' + onConflict;
+  const resp = await fetch(CONFIG.SUPABASE_URL + '/rest/v1/' + table, { method: 'POST', headers, body: JSON.stringify(rows) });
+  if (!resp.ok) { console.error('Upsert error:', table, resp.status, await resp.text()); throw new Error('Upsert error: ' + resp.status); }
+  return true;
+}
+
+async function supabaseDelete(table, params) {
+  const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY };
+  const resp = await fetch(CONFIG.SUPABASE_URL + '/rest/v1/' + table + '?' + params, { method: 'DELETE', headers });
+  if (!resp.ok) throw new Error('Delete error: ' + resp.status);
+  return true;
+}
+
+async function supabaseRPC(functionName, params={}) {
+  const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY, 'Content-Type': 'application/json' };
+  const resp = await fetch(CONFIG.SUPABASE_URL + '/rest/v1/rpc/' + functionName, { method: 'POST', headers, body: JSON.stringify(params) });
+  if (!resp.ok) throw new Error('RPC error: ' + resp.status);
+  return resp.json();
+}
+
 function pushToServer(){
-  if (!isConfigured()) { setSyncStatus('⚙️ Not connected — set Apps Script URL in Setup'); return; }
+  if (!isConfigured()) { setSyncStatus('⚙️ Not connected'); return; }
   clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(() => {
+  _pushTimer = setTimeout(async () => {
     setSyncStatus('🔄 Saving…');
-    fetch(CONFIG.APPS_SCRIPT_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'saveDB', db: DB }),
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-    }).then(r => r.json()).then(j => {
-      if (j.status === 'success') setSyncStatus('✅ Synced ' + new Date().toLocaleTimeString());
-      else setSyncStatus('⚠️ Sync error');
-    }).catch(() => setSyncStatus('⚠️ Offline — saved locally only'));
+    try {
+      // Sync faults to Supabase
+      const faultRows = DB.faults.map(f => ({
+        ticket_no: f.ticketNo, clinic_id: f.clinicId || activeClinicId, asset_code: f.assetCode,
+        asset_name: f.assetName, fault_type: f.faultType, fault_category: f.faultCategory,
+        description: f.description, priority: f.priority, status: f.status,
+        reporter_name: f.reporterName, user_code: f.userCode, source: f.source || 'dashboard',
+        part_number: f.partNumber, qty_used: f.qtyUsed || 0, unit_cost: f.unitCost || 0,
+        po_ref: f.poRef, closed_date: f.closedDate
+      }));
+      if (faultRows.length > 0) await supabaseUpsert('faults', faultRows, 'ticket_no');
+
+      // Sync work orders
+      const woRows = DB.workOrders.map(w => ({
+        ticket_no: w.ticketNo, clinic_id: w.clinicId || activeClinicId, asset_code: w.assetCode,
+        description: w.actionTaken, status: w.status, assigned_engineer: null,
+        parts_used: w.partNumber ? [{part_no: w.partNumber, qty: w.qtyUsed, cost: w.lineCost}] : [],
+        completion_date: w.closeDate, notes: w.actionTaken
+      }));
+      if (woRows.length > 0) await supabaseUpsert('work_orders', woRows, 'ticket_no');
+
+      // Sync spare parts
+      const spRows = DB.spareParts.map(p => ({
+        part_number: p.partNumber, name: p.name, category: p.category,
+        quantity: p.quantity || 0, unit_cost: p.unitCost || 0, min_stock: p.minStock || 0, supplier: p.supplier
+      }));
+      if (spRows.length > 0) await supabaseUpsert('spare_parts', spRows, 'part_number');
+
+      // Sync engineers
+      const engRows = DB.engineers.map(e => ({ code: e.code, name: e.name, phone: e.phone, active: true }));
+      if (engRows.length > 0) await supabaseUpsert('engineers', engRows, 'code');
+
+      // Sync purchase orders
+      const poRows = DB.purchaseOrders.map(p => ({
+        po_number: p.poNumber, supplier: p.supplier, status: p.status,
+        items: p.items || [], total_cost: p.totalCost || 0, order_date: p.orderDate, notes: p.notes
+      }));
+      if (poRows.length > 0) await supabaseUpsert('purchase_orders', poRows, 'po_number');
+
+      setSyncStatus('✅ Synced ' + new Date().toLocaleTimeString());
+    } catch(e) {
+      console.error('Sync error:', e);
+      setSyncStatus('⚠️ Sync error — saved locally');
+    }
   }, 800);
 }
 
@@ -1089,7 +1159,7 @@ async function pullFromServer(manual){
   _syncing = true;
   if (manual) setSyncStatus('🔄 Syncing…');
   try {
-    const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': '***' + CONFIG.SUPABASE_KEY };
+    const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY };
     const [clinics, assets, faults, workOrders, engineers, spareParts, purchaseOrders] = await Promise.all([
       fetch(CONFIG.SUPABASE_URL + '/rest/v1/clinics?select=*', { headers }).then(r => r.json()),
       fetch(CONFIG.SUPABASE_URL + '/rest/v1/assets?select=*', { headers }).then(r => r.json()),
@@ -1181,81 +1251,73 @@ function saveSetting(key,value){ if(!DB.settings) DB.settings={}; DB.settings[ke
    Script backend (automatic weekly backups run server-side).
    ============================================================ */
 function backupNow(){
-  if (!isConfigured()) { toast('Set the Apps Script URL in Setup first', 'error'); return; }
+  if (!isConfigured()) { toast('Supabase not connected', 'error'); return; }
   toast('Backing up…', 'info');
-  fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action: 'backupNow' }),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  }).then(r => r.json()).then(j => {
-    if (j.status === 'success') { toast('Backup saved: ' + j.fileName); loadBackupsList(); }
-    else toast(j.message || 'Backup failed', 'error');
-  }).catch(() => toast('Backup failed — check connection', 'error'));
+  // Create a snapshot in the backups table
+  const snapshot = { clinics: DB.clinics, assets: DB.assets, faults: DB.faults, workOrders: DB.workOrders, engineers: DB.engineers, spareParts: DB.spareParts, purchaseOrders: DB.purchaseOrders, settings: DB.settings, nextTicket: DB.nextTicket, nextWO: DB.nextWO };
+  supabaseUpsert('backups', [{ name: 'backup_' + new Date().toISOString().replace(/[:.]/g,'-'), data: snapshot, created_at: new Date().toISOString() }], 'name')
+    .then(() => { toast('Backup saved'); loadBackupsList(); })
+    .catch(() => toast('Backup failed', 'error'));
 }
 
 function archiveNow(){
-  if (!isConfigured()) { toast('Set the Apps Script URL in Setup first', 'error'); return; }
-  if(!confirm('Move all CLOSED tickets older than 6 months (and their work orders) to the permanent archive?\n\nThis keeps the live database fast, and nothing is deleted — archived tickets stay safely on Google Drive.\n\nContinue?')) return;
+  if (!isConfigured()) { toast('Supabase not connected', 'error'); return; }
+  if(!confirm('Move all CLOSED tickets older than 6 months to the archive?\n\nContinue?')) return;
   toast('Archiving…', 'info');
-  fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action: 'archiveNow' }),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  }).then(r => r.json()).then(j => {
-    if (j.status === 'success') {
-      toast(`Archived ${j.archivedFaults} ticket(s) and ${j.archivedWorkOrders} work order(s)`);
+  supabaseRPC('archive_old_tickets', { months_threshold: 6 })
+    .then(result => {
+      toast(`Archived ${result[0]?.archived_faults||0} ticket(s) and ${result[0]?.archived_work_orders||0} work order(s)`);
       loadArchiveStats();
-      pullFromServer(true); // refresh local view — archived tickets should disappear from live lists
-    } else toast(j.message || 'Archiving failed', 'error');
-  }).catch(() => toast('Archiving failed — check connection', 'error'));
+      pullFromServer(true);
+    })
+    .catch(() => toast('Archiving failed', 'error'));
 }
 
 function loadArchiveStats(){
   const el = document.getElementById('archive-stats');
   if (!el) return;
-  if (!isConfigured()) { el.innerHTML = '<span style="color:var(--danger)">Set the Apps Script URL in Setup first</span>'; return; }
+  if (!isConfigured()) { el.innerHTML = '<span style="color:var(--danger)">Supabase not connected</span>'; return; }
   el.innerHTML = 'Loading…';
-  fetch(CONFIG.APPS_SCRIPT_URL + '?action=archiveStats')
-    .then(r => r.json())
-    .then(j => {
-      if (j.status !== 'success') { el.innerHTML = 'No archive data yet.'; return; }
-      el.innerHTML = `<b style="color:var(--text-primary)">${j.archivedFaults}</b> ticket(s) and <b style="color:var(--text-primary)">${j.archivedWorkOrders}</b> work order(s) archived so far (kept permanently on Drive, exportable anytime on request).`;
-    })
-    .catch(() => { el.innerHTML = '<span style="color:var(--danger)">Failed to load archive stats</span>'; });
+  Promise.all([
+    supabaseQuery('archived_faults', 'select=count', { headers: { 'Prefer': 'count=exact' } }),
+    supabaseQuery('archived_work_orders', 'select=count', { headers: { 'Prefer': 'count=exact' } })
+  ]).then(([f, wo]) => {
+    el.innerHTML = `<b style="color:var(--text-primary)">${f.count||0}</b> ticket(s) and <b style="color:var(--text-primary)">${wo.count||0}</b> work order(s) archived.`;
+  }).catch(() => { el.innerHTML = '<span style="color:var(--danger)">Failed to load archive stats</span>'; });
 }
 
 function downloadFullArchive(){
-  if (!isConfigured()) { toast('Set the Apps Script URL in Setup first', 'error'); return; }
+  if (!isConfigured()) { toast('Supabase not connected', 'error'); return; }
   toast('Fetching full archive…', 'info');
-  fetch(CONFIG.APPS_SCRIPT_URL + '?action=downloadArchive')
-    .then(r => r.json())
-    .then(j => {
-      if (j.status !== 'success') { toast('Failed to fetch archive', 'error'); return; }
-      const blob = new Blob([JSON.stringify(j.archive, null, 2)], { type: 'application/json' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'All_in_1_CMMS_Archive_' + daysAgo(0) + '.json';
-      link.click();
-      toast('Archive downloaded — ' + (j.archive.faults||[]).length + ' historical ticket(s)');
-    })
-    .catch(() => toast('Failed to fetch archive — check connection', 'error'));
+  Promise.all([
+    supabaseQuery('archived_faults', 'select=*'),
+    supabaseQuery('archived_work_orders', 'select=*')
+  ]).then(([f, wo]) => {
+    const archive = { faults: f.data, workOrders: wo.data };
+    const blob = new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'CMMS_Archive_' + daysAgo(0) + '.json';
+    link.click();
+    toast('Archive downloaded — ' + (f.data||[]).length + ' ticket(s)');
+  }).catch(() => toast('Failed to fetch archive', 'error'));
 }
 
 function loadBackupsList(){
   const el = document.getElementById('backups-list');
   if (!el) return;
-  if (!isConfigured()) { el.innerHTML = '<span style="color:var(--danger)">Set the Apps Script URL in Setup first</span>'; return; }
+  if (!isConfigured()) { el.innerHTML = '<span style="color:var(--danger)">Supabase not connected</span>'; return; }
   el.innerHTML = 'Loading…';
-  fetch(CONFIG.SUPABASE_URL + '/rest/v1/backups?select=*&order=created_at.desc', { headers: { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': '***' + CONFIG.SUPABASE_KEY } })
-    .then(r => r.json())
-    .then(j => {
-      if (j.status !== 'success' || !j.backups || !j.backups.length) {
+  supabaseQuery('backups', 'select=*&order=created_at.desc')
+    .then(result => {
+      const backups = result.data || [];
+      if (backups.length === 0) {
         el.innerHTML = 'No backups found yet.';
         return;
       }
-      el.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' + j.backups.map(b => {
-        const d = new Date(b.date);
-        const sizeKb = Math.round(b.size/1024);
+      el.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' + backups.map(b => {
+        const d = new Date(b.created_at);
+        const sizeKb = b.data ? Math.round(JSON.stringify(b.data).length/1024) : 0;
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-primary);border-radius:6px">
           <span style="color:var(--text-primary)">${d.toLocaleString()} <span style="color:var(--text-muted)">(${sizeKb} KB)</span></span>
           <button class="btn btn-secondary btn-sm" onclick="restoreBackupConfirm('${b.name}')"><i class="fa-solid fa-clock-rotate-left"></i> Restore</button>
@@ -1272,18 +1334,27 @@ function restoreBackupConfirm(fileName){
 
 function performRestore(fileName){
   toast('Restoring…', 'info');
-  fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action: 'restoreBackup', fileName: fileName }),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  }).then(r => r.json()).then(j => {
-    if (j.status === 'success') {
-      toast('Restored — reloading data…');
+  supabaseQuery('backups', 'name=eq.' + encodeURIComponent(fileName) + '&select=*')
+    .then(result => {
+      if (!result.data || result.data.length === 0) { toast('Backup not found', 'error'); return; }
+      const backup = result.data[0];
+      const data = backup.data || backup;
+      // Restore data
+      if (data.clinics) DB.clinics = data.clinics;
+      if (data.assets) DB.assets = data.assets;
+      if (data.faults) DB.faults = data.faults;
+      if (data.workOrders) DB.workOrders = data.workOrders;
+      if (data.engineers) DB.engineers = data.engineers;
+      if (data.spareParts) DB.spareParts = data.spareParts;
+      if (data.purchaseOrders) DB.purchaseOrders = data.purchaseOrders;
+      if (data.settings) DB.settings = data.settings;
+      if (data.nextTicket) DB.nextTicket = data.nextTicket;
+      if (data.nextWO) DB.nextWO = data.nextWO;
+      saveDB();
       pullFromServer(true);
-    } else {
-      toast(j.message || 'Restore failed', 'error');
-    }
-  }).catch(() => toast('Restore failed — check connection', 'error'));
+      toast('Restored successfully');
+    })
+    .catch(() => toast('Restore failed', 'error'));
 }
 
 /* ============================================================
@@ -2871,13 +2942,12 @@ function viewQR(assetCode) {
   // still shows here, even after old closed tickets have been archived off
   // the live database.
   if (isConfigured()) {
-    fetch(CONFIG.APPS_SCRIPT_URL + '?action=archivedFaultsForAsset&assetCode=' + encodeURIComponent(a.assetCode))
-      .then(r => r.json())
-      .then(j => {
+    supabaseQuery('archived_faults', 'asset_code=eq.' + encodeURIComponent(a.assetCode) + '&select=*&order=created_at.desc')
+      .then(result => {
         const archivedEl = document.getElementById('archived-faults-list');
         const titleEl = document.getElementById('fault-history-title');
-        if (!archivedEl || !titleEl) return; // modal was closed before this resolved
-        const archivedFaults = (j.status === 'success' ? j.faults : []) || [];
+        if (!archivedEl || !titleEl) return;
+        const archivedFaults = result.data || [];
         if (archivedFaults.length === 0) { archivedEl.innerHTML = ''; return; }
         titleEl.textContent = `Fault History (${assetFaults.length} recent + ${archivedFaults.length} archived)`;
         archivedEl.innerHTML = archivedFaults.slice(-5).reverse().map(f => renderFaultRow(f, true)).join('');
@@ -3366,7 +3436,7 @@ function renderSetup(){
     <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">Integration Checklist</h3>
     <div style="font-size:13px;color:var(--text-secondary);line-height:2.2">
       <p>1. Google Sheet created with Faults / Assets / Engineers tabs</p>
-      <p>2. Apps Script pasted, setupSystem() executed</p>
+      <p>2. Supabase connected, data syncing</p>
       <p>3. Web app deployed (Anyone access) — URL pasted in config</p>
       <p>4. fault_report.html updated with same URL and uploaded to host</p>
       <p>5. QR_BASE URL pasted — QR_Master column will populate</p>
@@ -3390,7 +3460,7 @@ function renderSetup(){
 
   <div class="card mb-6">
     <h3 style="font-size:14px;font-weight:700;margin-bottom:12px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--accent)"></i> Backups</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Automatic weekly backups are saved to Google Drive by the Apps Script backend (requires running <code>installWeeklyBackupTrigger</code> once — see Code.gs comments). You can also back up or restore manually below.</p>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Backups are saved to Supabase automatically. You can also back up or restore manually below.</p>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary" onclick="backupNow()"><i class="fa-solid fa-cloud-arrow-up"></i> Backup Now</button>
       <button class="btn btn-secondary" onclick="loadBackupsList()"><i class="fa-solid fa-rotate"></i> Refresh List</button>
