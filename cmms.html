@@ -1150,10 +1150,15 @@ function pushToServer(){
       }));
       if (woRows.length > 0) await supabaseUpsert('work_orders', woRows, 'ticket_no');
 
-      // Sync spare parts
+           // Sync spare parts
       const spRows = DB.spareParts.map(p => ({
-        part_number: p.partNumber, name: p.name, category: p.category,
-        quantity: p.quantity || 0, unit_cost: p.unitCost || 0, min_stock: p.minStock || 0, supplier: p.supplier
+        part_number: p.partNumber, 
+        name: p.partName, // تم تعديل هذا المتغير
+        category: p.category,
+        quantity: p.quantity || 0, 
+        unit_cost: p.unitCost || 0, 
+        min_stock: p.minQty || 0, // تم تعديل هذا المتغير
+        supplier: p.supplier
       }));
       if (spRows.length > 0) await supabaseUpsert('spare_parts', spRows, 'part_number');
 
@@ -1163,8 +1168,13 @@ function pushToServer(){
 
       // Sync purchase orders
       const poRows = DB.purchaseOrders.map(p => ({
-        po_number: p.poNumber, supplier: p.supplier, status: p.status,
-        items: p.items || [], total_cost: p.totalCost || 0, order_date: p.orderDate, notes: p.notes
+        po_number: p.poNumber, 
+        supplier: p.supplier, 
+        status: p.poStatus, // تم تعديل هذا المتغير
+        items: p.items || [], 
+        total_cost: p.totalCost || 0, 
+        order_date: p.orderDate, 
+        notes: p.notes
       }));
       if (poRows.length > 0) await supabaseUpsert('purchase_orders', poRows, 'po_number');
 
