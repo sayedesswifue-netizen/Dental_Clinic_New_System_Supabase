@@ -1141,14 +1141,18 @@ function pushToServer(){
       }));
       if (faultRows.length > 0) await supabaseUpsert('faults', faultRows, 'ticket_no');
 
-      // Sync work orders
+            // Sync work orders
       const woRows = DB.workOrders.map(w => ({
-        ticket_no: w.ticketNo, clinic_id: w.clinicId || activeClinicId, asset_code: w.assetCode,
-        description: w.actionTaken, status: w.status, assigned_engineer: null,
-        parts_used: w.partNumber ? [{part_no: w.partNumber, qty: w.qtyUsed, cost: w.lineCost}] : [],
-        completion_date: w.closeDate, notes: w.actionTaken
+        ticket_no: w.ticketNo, 
+        clinic_id: w.clinicId || activeClinicId, 
+        description: w.actionTaken, 
+        status: w.status, 
+        assigned_engineer: null,
+        completion_date: w.closeDate, 
+        notes: w.actionTaken
       }));
-      if (woRows.length > 0) await supabaseUpsert('work_orders', woRows, 'ticket_no');
+      // تم إزالة 'ticket_no' من نهاية الدالة لمنع خطأ التضارب
+      if (woRows.length > 0) await supabaseUpsert('work_orders', woRows);
 
            // Sync spare parts
       const spRows = DB.spareParts.map(p => ({
