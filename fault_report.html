@@ -341,8 +341,8 @@ function generateDentalRooms(clinicId){
 // simply rely on the live Apps Script fetch instead (loadAssetsData()).
 const OFFLINE_ASSETS_BY_CLINIC = {
   '412': generateDentalRooms('412'),
-  'C212': generateDentalRooms('C212'),
-  'C312': generateDentalRooms('C312'),
+  '212': generateDentalRooms('212'), 'C212': generateDentalRooms('212'),
+  '312': generateDentalRooms('312'), 'C312': generateDentalRooms('312'),
 };
 
 function generateAssetsFromImageTable() {
@@ -478,6 +478,211 @@ window.addEventListener('DOMContentLoaded', () => {
   checkCMMSConnection();
 });
 
+/* ================================================================
+   MISSING FUNCTIONS — initAssetCombo, reapplyPrefill, unlockAssetSearch,
+   initCharCounter, loadEngineersData, selectPriority
+   ================================================================ */
+
+function initAssetCombo(prefill) {
+  const searchInput = document.getElementById('assetSearch');
+  const hiddenInput = document.getElementById('assetCode');
+  const listEl = document.getElementById('assetList');
+  const assetInfo = document.getElementById('asset-info');
+  const qrBadge = document.getElementById('qrBadge');
+  const unlockBtn = document.getElementById('unlockBtn');
+
+  function renderList(filter) {
+    const q = (filter || '').trim().toUpperCase();
+    const matches = q
+      ? assetsCache.filter(a =>
+          a.code.toUpperCase().includes(q) ||
+          (a.legacy || '').toUpperCase().includes(q) ||
+          a.name.toUpperCase().includes(q)
+        )
+      : assetsCache;
+
+    if (matches.length === 0) {
+      listEl.innerHTML = '<div class="combo-empty">لا توجد نتائج مطابقة</div>';
+    } else {
+      listEl.innerHTML = matches.map(a =>
+        '<div class="combo-item" data-code="' + a.code + '">' +
+        '<b>' + a.code + '</b>' +
+        (a.legacy ? ' <small>(' + a.legacy + ')</small>' : '') +
+        '<small>' + a.name + ' — ' + a.model + '</small>' +
+        '</div>'
+      ).join('');
+    }
+    listEl.classList.add('visible');
+    window._comboRender = renderList;
+  }
+
+  function selectAsset(code) {
+    const asset = assetsCache.find(a => a.code === code);
+    if (!asset) return;
+    hiddenInput.value = asset.code;
+    searchInput.value = asset.code + ' — ' + asset.name;
+    searchInput.disabled = true;
+    listEl.classList.remove('visible');
+    assetInfo.innerHTML = '✅ <b>' + asset.name + '</b> (' + asset.model + ') — ' + asset.category;
+    assetInfo.classList.add('visible');
+    qrBadge.style.display = 'inline-block';
+    unlockBtn.style.display = 'inline';
+
+    // Enable fault type dropdown and filter by category
+    const faultSelect = document.getElementById('faultType');
+    faultSelect.disabled = false;
+    faultSelect.innerHTML = '<option value="">— اختر نوع العطل —</option>';
+    const category = asset.category;
+    const faultsForCategory = faultMapping[category] || faultMapping['Dental Unit'] || [];
+    faultsForCategory.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      faultSelect.appendChild(opt);
+    });
+    document.getElementById('faultHint').textContent = '(' + faultsForCategory.length + ' نوع عطل لفئة ' + category + ')';
+  }
+
+  // Event listeners
+  searchInput.addEventListener('input', function() {
+    hiddenInput.value = '';
+    assetInfo.classList.remove('visible');
+    renderList(this.value);
+  });
+
+  searchInput.addEventListener('focus', function() {
+    if (!hiddenInput.value) renderList(this.value);
+  });
+
+  listEl.addEventListener('click', function(e) {
+    const item = e.target.closest('.combo-item');
+    if (item) selectAsset(item.dataset.code);
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.combo')) listEl.classList.remove('visible');
+  });
+
+  // Apply QR prefill if available
+  if (prefill) {
+    const asset = findAssetByCode(prefill);
+    if (asset) {
+      selectAsset(asset.code);
+      qrBadge.style.display = 'inline-block';
+    } else {
+      // Asset not found in cache yet — store for later (reapplyPrefill)
+      window._pendingPrefill = prefill;
+      searchInput.value = prefill;
+    }
+  }
+}
+
+function reapplyPrefill() {
+  const prefill = window._pendingPrefill || prefillUnitCode;
+  if (!prefill) return;
+  const asset = findAssetByCode(prefill);
+  if (asset) {
+    window._pendingPrefill = null;
+    // Re-run selectAsset with the updated cache
+    const hiddenInput = document.getElementById('assetCode');
+    const searchInput = document.getElementById('assetSearch');
+    const assetInfo = document.getElementById('asset-info');
+    const qrBadge = document.getElementById('qrBadge');
+    const unlockBtn = document.getElementById('unlockBtn');
+
+    hiddenInput.value = asset.code;
+    searchInput.value = asset.code + ' — ' + asset.name;
+    searchInput.disabled = true;
+    assetInfo.innerHTML = '✅ <b>' + asset.name + '</b> (' + asset.model + ') — ' + asset.category;
+    assetInfo.classList.add('visible');
+    qrBadge.style.display = 'inline-block';
+    unlockBtn.style.display = 'inline';
+
+    // Enable fault type dropdown
+    const faultSelect = document.getElementById('faultType');
+    faultSelect.disabled = false;
+    faultSelect.innerHTML = '<option value="">— اختر نوع العطل —</option>';
+    const faultsForCategory = faultMapping[asset.category] || faultMapping['Dental Unit'] || [];
+    faultsForCategory.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      faultSelect.appendChild(opt);
+    });
+    document.getElementById('faultHint').textContent = '(' + faultsForCategory.length + ' نوع عطل لفئة ' + asset.category + ')';
+  }
+}
+
+function unlockAssetSearch() {
+  const searchInput = document.getElementById('assetSearch');
+  const hiddenInput = document.getElementById('assetCode');
+  const assetInfo = document.getElementById('asset-info');
+  const qrBadge = document.getElementById('qrBadge');
+  const unlockBtn = document.getElementById('unlockBtn');
+  const faultSelect = document.getElementById('faultType');
+
+  searchInput.disabled = false;
+  searchInput.value = '';
+  hiddenInput.value = '';
+  assetInfo.classList.remove('visible');
+  qrBadge.style.display = 'none';
+  unlockBtn.style.display = 'none';
+  faultSelect.disabled = true;
+  faultSelect.innerHTML = '<option value="">— اختر نوع العطل —</option>';
+  document.getElementById('faultHint').textContent = '(يرجى اختيار الجهاز أولاً لتصفية الأعطال المقترحة)';
+  searchInput.focus();
+}
+
+function initCharCounter() {
+  const desc = document.getElementById('description');
+  const counter = document.getElementById('charNow');
+  desc.addEventListener('input', function() {
+    counter.textContent = this.value.length;
+  });
+}
+
+function loadEngineersData() {
+  // Try loading from CMMS localStorage first
+  try {
+    const saved = localStorage.getItem('clinic412_cmms');
+    if (saved) {
+      const db = JSON.parse(saved);
+      const engSelect = document.getElementById('assignedEngineer');
+      const engineers = (db.engineers || []).filter(e => (e.clinicId || '412') === currentClinicId);
+      if (engineers.length > 0) {
+        // Keep default option
+        engineers.forEach(eng => {
+          const opt = document.createElement('option');
+          opt.value = eng.code;
+          opt.textContent = eng.code + ' — ' + eng.name;
+          engSelect.appendChild(opt);
+        });
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Fallback: fetch from Supabase
+  fetch(SUPABASE_URL + '/rest/v1/engineers?clinic_id=eq.' + encodeURIComponent(currentClinicId) + '&select=code,name', {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  }).then(r => r.json()).then(engineers => {
+    if (!Array.isArray(engineers) || !engineers.length) return;
+    const engSelect = document.getElementById('assignedEngineer');
+    engineers.forEach(eng => {
+      const opt = document.createElement('option');
+      opt.value = eng.code;
+      opt.textContent = eng.code + ' — ' + eng.name;
+      engSelect.appendChild(opt);
+    });
+  }).catch(() => {});
+}
+
+function selectPriority(el) {
+  document.querySelectorAll('.sev-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  el.querySelector('input[type="radio"]').checked = true;
+}
+
 /* ---- device auto-load from QR link ---- */
 function normalizeCode(raw) {
   if (!raw) return null;
@@ -495,7 +700,7 @@ function loadAssetsData() {
   // Expects the Apps Script web app to expose ?action=assets&clinic=ID returning
   // { status:"success", assets:[{code,name,category,model,legacy,engineer}, ...] }
   fetch(SUPABASE_URL + '/rest/v1/assets?clinic_id=eq.' + encodeURIComponent(currentClinicId) + '&select=asset_code,asset_name,model,category,legacy_code,team', {
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': '***' + SUPABASE_KEY }
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
   }).then(r => r.json()).then(j => {
     if (!Array.isArray(j) || !j.length) return;
     assetsCache = j.map(a => ({
