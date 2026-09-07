@@ -1096,7 +1096,6 @@ async function supabaseUpsert(table, rows, onConflict) {
   };
   const url = CONFIG.SUPABASE_URL + '/rest/v1/' + table + (onConflict ? '?on_conflict=' + onConflict : '');
   
-  // تم إصلاح الخطأ هنا: إضافة الميثود POST وإرسال البيانات في الـ body
   const resp = await fetch(url, {
     method: 'POST',
     headers: headers,
@@ -1109,7 +1108,6 @@ async function supabaseUpsert(table, rows, onConflict) {
   }
   return true;
 }
-
 async function supabaseDelete(table, params) {
   const headers = { 'apikey': CONFIG.SUPABASE_KEY, 'Authorization': 'Bearer ' + CONFIG.SUPABASE_KEY };
   const resp = await fetch(CONFIG.SUPABASE_URL + '/rest/v1/' + table + '?' + params, { method: 'DELETE', headers });
@@ -1130,7 +1128,6 @@ function pushToServer(){
   _pushTimer = setTimeout(async () => {
     setSyncStatus('🔄 Saving…');
     try {
-      // Sync faults to Supabase
       const faultRows = DB.faults.map(f => ({
         ticket_no: f.ticketNo, clinic_id: f.clinicId || activeClinicId, asset_code: f.assetCode,
         asset_name: f.assetName, fault_type: f.faultType, fault_category: f.faultCategory,
@@ -1141,7 +1138,6 @@ function pushToServer(){
       }));
       if (faultRows.length > 0) await supabaseUpsert('faults', faultRows, 'ticket_no');
 
-            // Sync work orders
       const woRows = DB.workOrders.map(w => ({
         ticket_no: w.ticketNo, 
         clinic_id: w.clinicId || activeClinicId, 
@@ -1151,37 +1147,33 @@ function pushToServer(){
         completion_date: w.closeDate, 
         notes: w.actionTaken
       }));
-      // renurn 'ticket_no' here:
       if (woRows.length > 0) await supabaseUpsert('work_orders', woRows, 'ticket_no');
 
-           // Sync spare parts
       const spRows = DB.spareParts.map(p => ({
         part_number: p.partNumber, 
-        name: p.partName, // تم تعديل هذا المتغير
+        name: p.partName, 
         category: p.category,
-        quantity: p.quantity || 0, 
+        quantity: p.initialQty || 0, 
         unit_cost: p.unitCost || 0, 
-        min_stock: p.minQty || 0, // تم تعديل هذا المتغير
+        min_stock: p.minQty || 0, 
         supplier: p.supplier
       }));
       if (spRows.length > 0) await supabaseUpsert('spare_parts', spRows, 'part_number');
 
-      // Sync engineers
       const engRows = DB.engineers.map(e => ({ code: e.code, name: e.name, phone: e.phone, active: true }));
       if (engRows.length > 0) await supabaseUpsert('engineers', engRows, 'code');
 
-           // Sync purchase orders
       const poRows = DB.purchaseOrders.map(p => ({
         po_number: p.poNumber, 
         supplier: p.supplier, 
         status: p.poStatus, 
         items: p.items || [], 
         total_cost: p.totalCost || 0, 
-        order_date: p.dateRaised, // تم التعديل هنا ليطابق كود الحفظ
+        order_date: p.dateRaised, 
         notes: p.notes
       }));
       if (poRows.length > 0) await supabaseUpsert('purchase_orders', poRows, 'po_number');
-        
+
       setSyncStatus('✅ Synced ' + new Date().toLocaleTimeString());
     } catch(e) {
       console.error('Sync error:', e);
@@ -2336,9 +2328,8 @@ function savePart(partNumber){
     toast('Part added: '+pNumber);
   }
   saveDB(); closeModal(); navigate('spareparts');
-  pushToServer(); // <--- تمت إضافة هذا السطر لإرسال البيانات لسيرفر
+  pushToServer(); 
 }
-
 function deletePart(partNumber){
   const faultRefs = DB.faults.filter(f=>f.partNumber===partNumber).length;
   const poRefs = DB.purchaseOrders.filter(po=>po.partNumber===partNumber).length;
@@ -2445,7 +2436,7 @@ function savePO(poNo){
     toast('PO created: '+num);
   }
   saveDB();closeModal();navigate('purchaseorders');
-  pushToServer(); // <--- تمت إضافة هذا السطر لإرسال البيانات لسيرفر
+  pushToServer(); 
 }
 
 /* ============================================================
