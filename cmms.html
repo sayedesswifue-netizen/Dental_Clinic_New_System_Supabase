@@ -777,7 +777,7 @@ body.pdf-capturing [style*="direction:rtl"]{direction:rtl!important;text-align:r
 const TODAY = new Date();
 const daysAgo = n => { const d = new Date(TODAY); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; };
 const daysFromNow = n => { const d = new Date(TODAY); d.setDate(d.getDate()+n); return d.toISOString().split('T')[0]; };
-const fmt = n => n.toLocaleString('en-US');
+const const fmt = n => (n === undefined || n === null || isNaN(n)) ? '0' : n.toLocaleString('en-US');
 const fmtEgp = n => fmt(n) + ' EGP';
 
 // Navigation config
@@ -1163,17 +1163,16 @@ function pushToServer(){
       const engRows = DB.engineers.map(e => ({ code: e.code, name: e.name, phone: e.phone, active: true }));
       if (engRows.length > 0) await supabaseUpsert('engineers', engRows, 'code');
 
-      const poRows = DB.purchaseOrders.map(p => ({
+            const poRows = DB.purchaseOrders.map(p => ({
         po_number: p.poNumber, 
         supplier: p.supplier, 
         status: p.poStatus, 
-        items: p.items || [], 
+        items: p.items || [], // يتم تخزين القطع داخل هذا الحقل بصيغة JSON
         total_cost: p.totalCost || 0, 
         order_date: p.dateRaised, 
         notes: p.notes
       }));
       if (poRows.length > 0) await supabaseUpsert('purchase_orders', poRows, 'po_number');
-
       setSyncStatus('✅ Synced ' + new Date().toLocaleTimeString());
     } catch(e) {
       console.error('Sync error:', e);
