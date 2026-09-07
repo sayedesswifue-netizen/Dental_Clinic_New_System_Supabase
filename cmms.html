@@ -777,7 +777,7 @@ body.pdf-capturing [style*="direction:rtl"]{direction:rtl!important;text-align:r
 const TODAY = new Date();
 const daysAgo = n => { const d = new Date(TODAY); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; };
 const daysFromNow = n => { const d = new Date(TODAY); d.setDate(d.getDate()+n); return d.toISOString().split('T')[0]; };
-const const fmt = n => (n === undefined || n === null || isNaN(n)) ? '0' : n.toLocaleString('en-US');
+const fmt = n => (n !== undefined && n !== null && !isNaN(n)) ? Number(n).toLocaleString('en-US') : '0';
 const fmtEgp = n => fmt(n) + ' EGP';
 
 // Navigation config
