@@ -1151,8 +1151,8 @@ function pushToServer(){
         completion_date: w.closeDate, 
         notes: w.actionTaken
       }));
-      // تم إزالة 'ticket_no' من نهاية الدالة لمنع خطأ التضارب
-      if (woRows.length > 0) await supabaseUpsert('work_orders', woRows);
+      // renurn 'ticket_no' here:
+      if (woRows.length > 0) await supabaseUpsert('work_orders', woRows, 'ticket_no');
 
            // Sync spare parts
       const spRows = DB.spareParts.map(p => ({
