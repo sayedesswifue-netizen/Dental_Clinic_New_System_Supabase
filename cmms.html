@@ -1170,18 +1170,18 @@ function pushToServer(){
       const engRows = DB.engineers.map(e => ({ code: e.code, name: e.name, phone: e.phone, active: true }));
       if (engRows.length > 0) await supabaseUpsert('engineers', engRows, 'code');
 
-      // Sync purchase orders
+           // Sync purchase orders
       const poRows = DB.purchaseOrders.map(p => ({
         po_number: p.poNumber, 
         supplier: p.supplier, 
-        status: p.poStatus, // تم تعديل هذا المتغير
+        status: p.poStatus, 
         items: p.items || [], 
         total_cost: p.totalCost || 0, 
-        order_date: p.orderDate, 
+        order_date: p.dateRaised, // تم التعديل هنا ليطابق كود الحفظ
         notes: p.notes
       }));
       if (poRows.length > 0) await supabaseUpsert('purchase_orders', poRows, 'po_number');
-
+        
       setSyncStatus('✅ Synced ' + new Date().toLocaleTimeString());
     } catch(e) {
       console.error('Sync error:', e);
@@ -2336,6 +2336,7 @@ function savePart(partNumber){
     toast('Part added: '+pNumber);
   }
   saveDB(); closeModal(); navigate('spareparts');
+  pushToServer(); // <--- تمت إضافة هذا السطر لإرسال البيانات لسيرفر
 }
 
 function deletePart(partNumber){
@@ -2444,6 +2445,7 @@ function savePO(poNo){
     toast('PO created: '+num);
   }
   saveDB();closeModal();navigate('purchaseorders');
+  pushToServer(); // <--- تمت إضافة هذا السطر لإرسال البيانات لسيرفر
 }
 
 /* ============================================================
