@@ -1,0 +1,42 @@
+# Keeps the Supabase project out of Free Tier auto-pause by hitting the
+# REST API every few days. Supabase pauses a free project after 7 days with
+# zero activity, so running this every 3 days leaves a comfortable margin.
+#
+# SETUP (one time):
+#   1. In your GitHub repo, go to Settings -> Secrets and variables -> Actions
+#      -> New repository secret.
+#   2. Name:  SUPABASE_URL      Value: https://dntcwboceyihuxeuwdff.supabase.co
+#   3. Name:  SUPABASE_ANON_KEY Value: (the same anon key already in
+#      cmms.html / fault_report.html — it's public anyway, but a secret
+#      keeps it out of the Actions log).
+#   4. Commit this file at exactly this path in your repo:
+#      .github/workflows/keep-supabase-alive.yml
+#
+# That's it — GitHub runs it automatically from then on. You can also run it
+# manually any time from the repo's "Actions" tab ("Run workflow" button).
+
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    # Every 3 days at 04:00 UTC (06:00 Cairo time). Cron is UTC always.
+    - cron: '0 4 */3 * *'
+  workflow_dispatch: {} # lets you trigger it manually from the Actions tab
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API (lightweight read-only query)
+        run: |
+          http_code=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/clinics?select=code&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "HTTP status: $http_code"
+          cat /tmp/response.json
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Supabase ping failed with HTTP $http_code — project may already be paused or the key/URL secret is wrong."
+            exit 1
+          fi
+          echo "Supabase ping succeeded — project stays active."
