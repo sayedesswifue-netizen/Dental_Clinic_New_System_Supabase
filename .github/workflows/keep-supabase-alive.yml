@@ -30,7 +30,7 @@ jobs:
       - name: Ping Supabase REST API (lightweight read-only query)
         run: |
           http_code=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/clinics?select=code&limit=1" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/assets?select=asset_code&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
           echo "HTTP status: $http_code"
